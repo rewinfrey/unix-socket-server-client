@@ -15,7 +15,7 @@ opts :: Parser Arguments
 opts = Arguments <$> strOption ( long "mode" <> short 'm' <> metavar "MODE" <> value "server" <> help "Select MODE for operation (server or client)" )
                  <*> strOption ( long "path" <> short 'p' <> value "/tmp/socket_test" <> help "Define the socket location" )
 
-parseArgs :: ParserInfo a
+parseArgs :: ParserInfo Arguments
 parseArgs = info (opts <**> helper) ( fullDesc <> progDesc "A UNIX socket server / client" <> header "Unleash the UNIX socket!" )
 
 main :: IO ()
