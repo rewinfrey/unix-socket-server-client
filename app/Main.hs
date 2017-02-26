@@ -7,9 +7,10 @@ import qualified Data.ByteString.Char8 as C
 import System.Posix.Files
 import Options.Applicative
 import Data.Semigroup
-import Control.Monad.Trans.State
 
 data Arguments = Arguments String String
+
+data SocketState = Continue | Exit deriving (Show, Eq)
 
 opts :: Parser Arguments
 opts = Arguments <$> strOption ( long "mode" <> short 'm' <> metavar "MODE" <> value "server" <> help "Select MODE for operation (server or client)" )
@@ -38,26 +39,26 @@ runServer socketPath = withSocketsDo $ do
     where
       go :: Socket -> IO ()
       go sock = do
-        (conn,_) <- accept sock
-        talk conn
-        go sock
+        result <- talk =<< accept sock
+        case result of
+          Continue -> go sock
+          _ -> return ()
 
-      talk :: Socket -> IO ()
-      talk conn =
-          do msg <- recv conn 16384
-             if C.null msg
-               then reply conn "Nothing received!"
-               else if C.unpack msg == ":quit" then do
-                 reply conn "Quitting!"
-                 putStrLn "Shutting down..."
-                 exit conn
-               else do
-                 C.putStrLn $ C.pack "\n"
-                 C.putStrLn msg
-                 reply conn $ C.unpack msg
+      talk :: (Socket, SockAddr) -> IO SocketState
+      talk (conn, _) = do
+        msg <- recv conn 16384
+        if C.unpack msg == ":quit" then do
+          reply conn "Shutting down..."
+          putStrLn "Shutting down..."
+          return Exit
+        else do
+          C.putStrLn $ C.pack "\n"
+          C.putStrLn msg
+          reply conn $ C.unpack msg
+          return Continue
 
       reply :: Socket -> String -> IO ()
-      reply conn msg = pure () -- sendAll conn $ C.pack msg
+      reply conn msg = sendAll conn $ C.pack msg
 
       exit :: Socket -> IO ()
       exit conn = do
