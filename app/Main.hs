@@ -24,7 +24,8 @@ main = execParser parseArgs >>= run
 run :: Arguments -> IO ()
 run (Arguments mode socketPath) = case mode of
   "server" -> runServer socketPath
-  _ -> runClient socketPath
+  "client" -> runClient socketPath
+  _ -> error $ "Unrecognized run mode " <> mode
 
 runServer :: FilePath -> IO ()
 runServer socketPath = withSocketsDo $ do
