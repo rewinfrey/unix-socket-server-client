@@ -10,7 +10,7 @@ import Data.Semigroup
 
 data Arguments = Arguments String String
 
-data SocketState = Continue | Exit deriving (Show, Eq)
+data SocketState = Close | Exit deriving (Show, Eq)
 
 opts :: Parser Arguments
 opts = Arguments <$> strOption ( long "mode" <> short 'm' <> metavar "MODE" <> value "server" <> help "Select MODE for operation (server or client)" )
@@ -41,21 +41,30 @@ runServer socketPath = withSocketsDo $ do
       go sock = do
         result <- talk =<< accept sock
         case result of
-          Continue -> go sock
-          _ -> return ()
+          Close -> go sock
+          Exit -> return ()
 
       talk :: (Socket, SockAddr) -> IO SocketState
-      talk (conn, _) = do
+      talk connection@(conn, _) = do
         msg <- recv conn 16384
-        if C.unpack msg == ":quit" then do
-          reply conn "Shutting down..."
-          putStrLn "Shutting down..."
+        if C.unpack msg == ":close" then do
+          echo msg conn
+          return Close
+        else if C.unpack msg == ":quit" then do
+          echo msg conn
           return Exit
+        else if C.null msg then do
+          putStrLn "here"
+          echo (C.pack "Null") conn
+          talk connection
         else do
-          C.putStrLn $ C.pack "\n"
-          C.putStrLn msg
-          reply conn $ C.unpack msg
-          return Continue
+          echo msg conn
+          talk connection
+
+      echo msg conn = do
+        putStr "Received: "
+        C.putStrLn msg
+        reply conn $ C.unpack msg
 
       reply :: Socket -> String -> IO ()
       reply conn msg = sendAll conn $ C.pack msg
@@ -64,20 +73,44 @@ runServer socketPath = withSocketsDo $ do
       exit conn = do
         close conn
         removeLink socketPath
-        putStrLn "DONE"
+        putStrLn "Done"
 
 runClient :: FilePath -> IO ()
 runClient socketPath = withSocketsDo $ do
-  sock <- socket AF_UNIX Stream 0
-  connect sock (SockAddrUnix socketPath)
-  putStrLn "Please type your message:"
-  chat sock
+  go socketPath
+  putStrLn "Done"
 
   where
-    chat sock = do
+    go :: FilePath -> IO ()
+    go socketPath = do
+      prompt
+      sock <- socket AF_UNIX Stream 0
+      connect sock (SockAddrUnix socketPath)
+      chat sock socketPath
+
+    chat :: Socket -> FilePath -> IO ()
+    chat sock socketPath = do
       msg <- getLine
       sendAll sock $ C.pack msg
       msg <- recv sock 1024
-      putStr "Received "
-      C.putStrLn msg
-      chat sock
+      if C.unpack msg == ":quit"
+        then do
+          putStrLn "Quit received. Shutting down."
+          close sock
+          return ()
+        else if C.unpack msg == ":close"
+          then do
+            putStrLn "Close received. Re-connecting new socket."
+            go socketPath
+        else do
+          putStr "Response: "
+          C.putStrLn msg
+          chat sock socketPath
+
+    prompt :: IO ()
+    prompt = do
+      putStrLn "\n\nWelcome to socket client!"
+      putStrLn "-------------------------"
+      putStrLn "\n:quit to quit the program"
+      putStrLn ":close to close the existing socket connection"
+      putStrLn "\nType your input below:\n"
